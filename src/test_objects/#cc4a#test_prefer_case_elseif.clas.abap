@@ -11,6 +11,7 @@ CLASS /cc4a/test_prefer_case_elseif DEFINITION
     METHODS with_nested_if.
     METHODS with_double_nested_if.
     METHODS with_else_branch.
+    METHODS with_or_condition.
 ENDCLASS.
 
 
@@ -118,6 +119,22 @@ CLASS /cc4a/test_prefer_case_elseif IMPLEMENTATION.
       result = 5.
     ELSE.
       result = 0.
+    ENDIF.
+
+  ENDMETHOD.
+
+  METHOD with_or_condition.
+    DATA(type) = 'A'.
+    IF type = 'A' OR type = 'B'.
+      DATA(result) = 1.
+    ELSEIF type = 'C'.
+      result = 2.
+    ELSEIF type = 'D'.
+      result = 3.
+    ELSEIF type = 'E'.
+      result = 4.
+    ELSEIF type = 'F'.
+      result = 5.
     ENDIF.
 
   ENDMETHOD.

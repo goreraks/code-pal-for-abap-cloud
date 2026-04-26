@@ -26,7 +26,7 @@ CLASS /cc4a/prefer_case_to_elseif DEFINITION
     " Represents one IF / ELSEIF / ELSE branch within an IF block.
     " condition_root holds the left-hand side variable (e.g. TYPE in IF TYPE = 'A').
     " is_else = true for branches that cannot map to a simple WHEN clause:
-    "   ELSE keyword, or IF/ELSEIF conditions joined by AND / OR.
+    "   ELSE keyword, AND conditions, or OR conditions testing different variables.
     TYPES:
       BEGIN OF ty_branch,
         stmt_index     TYPE i,
@@ -53,7 +53,7 @@ CLASS /cc4a/prefer_case_to_elseif DEFINITION
       IMPORTING !procedure    TYPE if_ci_atc_source_code_provider=>ty_procedure
       RETURNING VALUE(result) TYPE if_ci_atc_check=>ty_findings.
 
-    METHODS has_multiple_conditions
+    METHODS has_and_condition
       IMPORTING !statement    TYPE if_ci_atc_source_code_provider=>ty_statement
       RETURNING VALUE(result) TYPE abap_bool.
 
@@ -131,16 +131,21 @@ CLASS /cc4a/prefer_case_to_elseif IMPLEMENTATION.
           " Push a new entry for this IF block onto the stack.
           DATA(entry) = VALUE ty_stack_entry( if_stmt_index = idx
                                               if_stmt       = <stmt> ).
-          IF has_multiple_conditions( <stmt> ) = abap_false.
-            " No null check on root: a compilable IF with a simple condition always
-            " has a subject token at position 2 (e.g. TYPE in: IF TYPE = 'A').
+          IF has_and_condition( <stmt> ) = abap_false.
             DATA(root) = get_condition_root( <stmt> ).
-            INSERT VALUE #( stmt_index     = idx
-                            stmt           = <stmt>
-                            condition_root = root
-                            when_value     = get_when_value( <stmt> ) ) INTO TABLE entry-branches.
+            IF root IS NOT INITIAL.
+              INSERT VALUE #( stmt_index     = idx
+                              stmt           = <stmt>
+                              condition_root = root
+                              when_value     = get_when_value( <stmt> ) ) INTO TABLE entry-branches.
+            ELSE.
+              " OR chain with different variables — cannot map to a single WHEN clause.
+              INSERT VALUE #( stmt_index = idx
+                              stmt       = <stmt>
+                              is_else    = abap_true ) INTO TABLE entry-branches.
+            ENDIF.
           ELSE.
-            " AND/OR conditions cannot be expressed as a single WHEN clause.
+            " AND conditions cannot be expressed as a WHEN clause.
             INSERT VALUE #( stmt_index = idx
                             stmt       = <stmt>
                             is_else    = abap_true ) INTO TABLE entry-branches.
@@ -150,15 +155,21 @@ CLASS /cc4a/prefer_case_to_elseif IMPLEMENTATION.
         WHEN 'ELSEIF'.
           IF stack IS NOT INITIAL.
             ASSIGN stack[ lines( stack ) ] TO FIELD-SYMBOL(<top>).
-            IF has_multiple_conditions( <stmt> ) = abap_false.
-              " Same guarantee as for IF: compilable simple ELSEIF always has token[2].
+            IF has_and_condition( <stmt> ) = abap_false.
               DATA(elseif_root) = get_condition_root( <stmt> ).
-              INSERT VALUE #( stmt_index     = idx
-                              stmt           = <stmt>
-                              condition_root = elseif_root
-                              when_value     = get_when_value( <stmt> ) ) INTO TABLE <top>-branches.
+              IF elseif_root IS NOT INITIAL.
+                INSERT VALUE #( stmt_index     = idx
+                                stmt           = <stmt>
+                                condition_root = elseif_root
+                                when_value     = get_when_value( <stmt> ) ) INTO TABLE <top>-branches.
+              ELSE.
+                " OR chain with different variables — cannot map to a single WHEN clause.
+                INSERT VALUE #( stmt_index = idx
+                                stmt       = <stmt>
+                                is_else    = abap_true ) INTO TABLE <top>-branches.
+              ENDIF.
             ELSE.
-              " AND/OR conditions cannot be expressed as a single WHEN clause.
+              " AND conditions cannot be expressed as a WHEN clause.
               INSERT VALUE #( stmt_index = idx
                               stmt       = <stmt>
                               is_else    = abap_true ) INTO TABLE <top>-branches.
@@ -193,8 +204,8 @@ CLASS /cc4a/prefer_case_to_elseif IMPLEMENTATION.
               " All non-else branches must share the same variable;
               " a mixed chain cannot be cleanly expressed as CASE.
               IF count >= threshold AND count = total_non_else.
-                " Skip the finding entirely when any IF/ELSEIF branch has AND/OR conditions.
-                " Such chains cannot be cleanly expressed as a CASE statement.
+                " Skip the finding when any IF/ELSEIF branch uses AND or a mixed OR
+                " condition — such branches can't map to a WHEN clause.
                 DATA has_complex_branch TYPE abap_bool.
                 LOOP AT popped-branches ASSIGNING FIELD-SYMBOL(<b>) WHERE is_else = abap_true.
                   IF <b>-stmt-keyword = 'IF' OR <b>-stmt-keyword = 'ELSEIF'.
@@ -233,25 +244,34 @@ CLASS /cc4a/prefer_case_to_elseif IMPLEMENTATION.
     ENDLOOP.
   ENDMETHOD.
 
-  METHOD has_multiple_conditions.
-    " AND / OR tokens mean the condition spans multiple sub-expressions and
-    " cannot be converted to a single WHEN clause.
-    " TODO: variable is assigned but never used (ABAP cleaner)
-    LOOP AT statement-tokens ASSIGNING FIELD-SYMBOL(<token>)
-        WHERE lexeme = 'AND' OR lexeme = 'OR'.
+  METHOD has_and_condition.
+    LOOP AT statement-tokens ASSIGNING FIELD-SYMBOL(<token>) WHERE lexeme = 'AND'.
       result = abap_true.
       RETURN.
     ENDLOOP.
   ENDMETHOD.
 
   METHOD get_condition_root.
-    " Token layout for a simple condition: [1]=IF/ELSEIF  [2]=<variable>  [3]=operator  [4]=value
+    " Token layout: [1]=IF/ELSEIF  [2]=<variable>  [3]=operator  [4]=value  ([5]=OR [6]=var ...)*
+    " For OR chains all sub-conditions must test the same variable; returns empty if they differ.
     result = VALUE #( statement-tokens[ 2 ]-lexeme OPTIONAL ).
+    LOOP AT statement-tokens ASSIGNING FIELD-SYMBOL(<t>) WHERE lexeme = 'OR'.
+      DATA(next_var) = VALUE #( statement-tokens[ sy-tabix + 1 ]-lexeme OPTIONAL ).
+      IF next_var <> result.
+        CLEAR result.
+        RETURN.
+      ENDIF.
+    ENDLOOP.
   ENDMETHOD.
 
   METHOD get_when_value.
-    " Token layout for a simple condition: [1]=IF/ELSEIF  [2]=<variable>  [3]=operator  [4]=value
+    " Simple:   [1]=kw [2]=var [3]=op [4]=value → 'value'
+    " OR chain: repeat [OR][var][op][value] → 'val1 OR val2 OR ...'
     result = VALUE #( statement-tokens[ 4 ]-lexeme OPTIONAL ).
+    LOOP AT statement-tokens ASSIGNING FIELD-SYMBOL(<t>) WHERE lexeme = 'OR'.
+      DATA(next_val) = VALUE #( statement-tokens[ sy-tabix + 3 ]-lexeme OPTIONAL ).
+      result = |{ result } OR { next_val }|.
+    ENDLOOP.
   ENDMETHOD.
 
   METHOD get_dominant_root.
@@ -299,7 +319,7 @@ CLASS /cc4a/prefer_case_to_elseif IMPLEMENTATION.
     " Derive the indentation step from the gap between the IF keyword column and
     " the first statement inside the IF body.
     TRY.
-        DATA(if_col)   = procedure-statements[ if_stmt_index ]-tokens[ 1 ]-position-column. "#EC SCOPE_OF_VAR
+        DATA(if_col)   = procedure-statements[ if_stmt_index ]-tokens[ 1 ]-position-column. "#EC CI_SCOPE_OF_VAR
         DATA(next_col) = procedure-statements[ if_stmt_index + 1 ]-tokens[ 1 ]-position-column.
         IF next_col > if_col.
           indent_step = next_col - if_col.

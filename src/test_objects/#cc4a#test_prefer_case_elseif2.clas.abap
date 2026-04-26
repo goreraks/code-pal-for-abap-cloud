@@ -11,6 +11,7 @@ CLASS /cc4a/test_prefer_case_elseif2 DEFINITION
     METHODS with_complex_if_condition.
     METHODS with_mixed_elseif_chain.
     METHODS with_nondominant_before_else.
+    METHODS with_or_mixed_variables.
 ENDCLASS.
 
 
@@ -113,6 +114,23 @@ CLASS /cc4a/test_prefer_case_elseif2 IMPLEMENTATION.
       result_x = 6.
     ELSE.
       result = 0.
+    ENDIF.
+
+  ENDMETHOD.
+
+  METHOD with_or_mixed_variables.
+    DATA(type)   = 'A'.
+    DATA(status) = 'X'.
+    IF type = 'A' OR status = 'X'.
+      DATA(result) = 1.
+    ELSEIF type = 'B'.
+      result = 2.
+    ELSEIF type = 'C'.
+      result = 3.
+    ELSEIF type = 'D'.
+      result = 4.
+    ELSEIF type = 'E'.
+      result = 5.
     ENDIF.
 
   ENDMETHOD.

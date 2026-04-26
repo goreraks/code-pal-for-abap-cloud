@@ -7,11 +7,12 @@ CLASS test DEFINITION FINAL FOR TESTING
     CONSTANTS test_class_no_findings TYPE c LENGTH 30 VALUE '/CC4A/TEST_PREFER_CASE_ELSEIF2'.
     CONSTANTS:
       BEGIN OF test_class_methods,
-        with_elseif_chain     TYPE c LENGTH 30 VALUE 'WITH_ELSEIF_CHAIN',
-        with_pseudo_comment   TYPE c LENGTH 30 VALUE 'WITH_PSEUDO_COMMENT',
-        with_nested_if        TYPE c LENGTH 30 VALUE 'WITH_NESTED_IF',
-        with_double_nested_if TYPE c LENGTH 30 VALUE 'WITH_DOUBLE_NESTED_IF',
-        with_else_branch      TYPE c LENGTH 30 VALUE 'WITH_ELSE_BRANCH',
+        with_elseif_chain       TYPE c LENGTH 30 VALUE 'WITH_ELSEIF_CHAIN',
+        with_pseudo_comment     TYPE c LENGTH 30 VALUE 'WITH_PSEUDO_COMMENT',
+        with_nested_if          TYPE c LENGTH 30 VALUE 'WITH_NESTED_IF',
+        with_double_nested_if   TYPE c LENGTH 30 VALUE 'WITH_DOUBLE_NESTED_IF',
+        with_else_branch        TYPE c LENGTH 30 VALUE 'WITH_ELSE_BRANCH',
+        with_or_condition       TYPE c LENGTH 30 VALUE 'WITH_OR_CONDITION',
       END OF test_class_methods.
 
     METHODS execute_test_class FOR TESTING RAISING cx_static_check.
@@ -49,6 +50,11 @@ CLASS test IMPLEMENTATION.
     DATA(with_else_branch_finding) = VALUE if_ci_atc_check=>ty_location(
           object   = cl_ci_atc_unit_driver=>get_method_object(
             VALUE #( class = test_class method = test_class_methods-with_else_branch ) )
+          position = VALUE #( line = 3 column = 4 ) ).
+
+    DATA(with_or_condition_finding) = VALUE if_ci_atc_check=>ty_location(
+          object   = cl_ci_atc_unit_driver=>get_method_object(
+            VALUE #( class = test_class method = test_class_methods-with_or_condition ) )
           position = VALUE #( line = 3 column = 4 ) ).
 
     cl_ci_atc_unit_driver=>create_asserter( )->check_and_assert(
@@ -158,6 +164,23 @@ CLASS test IMPLEMENTATION.
                                                ( `        RESULT = 5 .` )
                                                ( `      WHEN OTHERS .` )
                                                ( `        RESULT = 0 .` )
+                                               ( `    ENDCASE .` ) ) ) ) )
+                                           ( location = with_or_condition_finding
+                                               quickfixes = VALUE #( (
+                                               quickfix_code = /cc4a/prefer_case_to_elseif=>quickfix_codes-to_case
+                                               location = with_or_condition_finding
+                                               code = VALUE #(
+                                               ( `CASE TYPE .` )
+                                               ( `      WHEN 'A' OR 'B' .` )
+                                               ( `        DATA(RESULT) = 1 .` )
+                                               ( `      WHEN 'C' .` )
+                                               ( `        RESULT = 2 .` )
+                                               ( `      WHEN 'D' .` )
+                                               ( `        RESULT = 3 .` )
+                                               ( `      WHEN 'E' .` )
+                                               ( `        RESULT = 4 .` )
+                                               ( `      WHEN 'F' .` )
+                                               ( `        RESULT = 5 .` )
                                                ( `    ENDCASE .` ) ) ) ) ) )
               asserter_config   = VALUE #( quickfixes = abap_false ) ).
 
